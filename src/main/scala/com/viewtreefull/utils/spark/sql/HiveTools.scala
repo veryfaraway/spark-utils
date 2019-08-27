@@ -1,0 +1,233 @@
+package com.viewtreefull.utils.spark.sql
+
+import com.viewtreefull.utils.common.fs
+import com.viewtreefull.utils.common.fs.FileFormat.FileFormat
+import com.viewtreefull.utils.common.fs.{FileFormat, FileTools}
+import com.viewtreefull.utils.common.lang.StringTools
+import com.viewtreefull.utils.common.shell.HDFSTools
+import org.apache.log4j.LogManager
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+
+import scala.collection.mutable
+
+object HiveTools {
+  private val log = LogManager.getRootLogger
+
+  /**
+   * Return Maximum value of table partition to find latest value
+   *
+   * @param tableName dbName.tableName
+   * @param spark     SparkSession
+   * @return String value of partition like 'dt=20180821/hour=15'
+   */
+  def getMaxPartition(tableName: String, spark: SparkSession): String = {
+    // col(partition)
+    spark.sql(
+      s"""
+         |SHOW PARTITIONS $tableName
+     """.stripMargin)
+      .orderBy(col("partition").desc)
+      .head().getString(0)
+  }
+
+  /**
+   * Find Maximum value of table partition
+   * And separate partition column and value as list of (column, value)
+   * ex) if max partition is dt=20180821/hour=15 then return Seq((dt,20180821), (hour,15))
+   *
+   * @param tableName dbName.tableName
+   * @param spark     SparkSession
+   * @return list of (column, value)
+   */
+  def getMaxPartitionValues(tableName: String, spark: SparkSession): Seq[(String, String)] = {
+    // col(partition)
+    val maxPartitions = getMaxPartition(tableName, spark)
+
+    maxPartitions.split("/").map { p =>
+      val values = p.split("=")
+      (values(0), values(1))
+    }
+  }
+
+  /**
+   * Find Maximum value of table partition
+   * And separate partition column and value as Maps(Key: column, Value: value)
+   * ex) if max partition is dt=20180821/hour=15 then return Map("dt" -> "20180821", "hour" -> "15")
+   *
+   * @param tableName dbName.tableName
+   * @param spark     SparkSession
+   * @return
+   */
+  def getMaxPartitionMaps(tableName: String, spark: SparkSession): mutable.Map[String, String] = {
+    var partitionMap = scala.collection.mutable.Map[String, String]()
+
+    // col(partition)
+    val maxPartitions = getMaxPartition(tableName, spark)
+    maxPartitions.split("/").foreach { p =>
+      val values = p.split("=")
+      partitionMap += (values(0) -> values(1))
+    }
+
+    partitionMap
+  }
+
+  /**
+   * Save non-partitioned DataFrame as Hive table
+   * Make sure that other tables don't refer to this table during writing
+   * Because there is no locking table so if a job reads a table being written using this method,
+   * can read incomplete data or fail to read
+   *
+   * @param df         DataFrame to save
+   * @param tableName  Hive table name to save ex) "db.table"
+   * @param fileFormat see [[fs.FileFormat]]
+   */
+  def saveAsTableSimple(df: DataFrame, tableName: String, numFiles: Int = 0,
+                        fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+    df.transform(DataFrameTools.setOutputFileCount(numFiles))
+      .write.format(fileFormat.toString)
+      .mode(SaveMode.Overwrite).saveAsTable(tableName)
+  }
+
+  /**
+   * save non-partitioned table data as file first with specific file format
+   *
+   * @param df         DataFrame to save
+   * @param tableName  Hive table name to save ex) "db.table"
+   * @param path       Temporary file path to save DataFrame
+   * @param spark      SparkSession
+   * @param fileFormat see [[fs.FileFormat]]
+   */
+  def saveAsTable(df: DataFrame, tableName: String, path: String, spark: SparkSession,
+                  numFiles: Int = 0, fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+
+    // to debug easily
+    log.info(s"Write table[$tableName]")
+    df.printSchema()
+
+    // save data to temp path first
+    df.transform(DataFrameTools.setOutputFileCount(numFiles))
+      .write.format(fileFormat.toString).save(path)
+    log.info(s"DateFrame is saved at [$path]")
+
+    // finally load data into table
+    loadData(tableName, path, spark)
+    log.info(s"DataFrame is loaded into Table[$tableName]")
+
+    // delete empty directory after loading data
+    FileTools.removeDir(path)
+  }
+
+  /**
+   * save table data with partitions dynamically
+   * make sure add configuration to SparkSession below
+   * - hive.exec.dynamic.partition=true
+   * - hive.exec.dynamic.partition.mode=nonstrict
+   *
+   * @param df         DataFrame to save as table
+   * @param tableName  table name to save
+   * @param partitions list of names of partition ex) Seq("dt", "hour")
+   * @param spark      sparkSession
+   * @param fileFormat default value is orc
+   */
+  def saveAsTableWithPartitionDynamically(df: DataFrame, tableName: String, partitions: Seq[String],
+                                          spark: SparkSession, numFiles: Int = 0,
+                                          fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+
+    val strCols = StringTools.concatStrings(df.columns)
+    val strPartition = StringTools.concatStrings(partitions)
+
+    // Register the DataFrame as a Hive table
+    df.transform(DataFrameTools.setOutputFileCount(numFiles))
+      .createOrReplaceTempView("df")
+
+    val query =
+      s"""
+         |INSERT OVERWRITE TABLE $tableName
+         |PARTITION($strPartition)
+         |SELECT $strCols
+         |FROM df
+    """.stripMargin
+
+    // to debug
+    println(s"[spark-util]HiveTools.saveAsTableWithPartitionDynamically table: $query")
+    spark.sql(query)
+  }
+
+  /**
+   * save table data with specific partitions
+   * [IMPORTANT]partition column should not be included in DataFrame
+   * because generated partition as directory by "LOAD DATA ..." query
+   *
+   * @param df         DataFrame to save as table
+   * @param tableName  table name to save
+   * @param partitions partitions of table as list of (column, value)
+   * @param path       file location to load
+   * @param spark      sparkSession
+   * @param numFiles   output file count to reduce files
+   * @param overwrite  WriteMode, true: overwrite, false: append
+   * @param flag       if flag is true, create _SUCCESS file
+   * @param fileFormat default value is orc
+   */
+  def saveAsTableWithPartition(df: DataFrame, tableName: String, partitions: Seq[(String, Any)],
+                               path: String, spark: SparkSession, numFiles: Int = 0,
+                               overwrite: Boolean = true, flag: Boolean = false,
+                               fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+    // to debug easily
+    println(
+      s"""
+         |Write table[$tableName]:
+         |\tpartitions - $partitions
+         |\tOverwrite - $overwrite
+         |\tcreate(_SUCCESS) - $flag
+         |\tfromPath - $path
+       """.stripMargin)
+    df.printSchema()
+
+    // save data to temp path first
+    df.transform(DataFrameTools.setOutputFileCount(numFiles))
+      .write.format(fileFormat.toString).save(path)
+    log.info(s"DateFrame is saved at [$path]")
+
+    // finally load data into table
+    loadDataWithPartitions(tableName, partitions, path, spark, overwrite)
+    log.info(s"DataFrame is loaded into Table[$tableName]")
+
+    if (flag) {
+      createCheckFile(tableName, partitions, spark)
+    }
+
+    // delete empty directory after loading data
+    HDFSTools.removeDir(path)
+  }
+
+  // create _SUCCESS file
+  def createCheckFile(tableName: String, partitions: Seq[(String, Any)], spark: SparkSession): Unit = {
+    val checkFileName = getCheckFileName(tableName, partitions, spark)
+    println(s"CreateCheckFile: $checkFileName")
+    if (checkFileName.isDefined) HDFSTools.createEmptyFile(checkFileName.get)
+  }
+
+  // get check file(_SUCCESS) absolute path
+  def getCheckFileName(tableName: String, partitions: Seq[(String, Any)], spark: SparkSession): Option[String] = {
+    val inputFiles = spark.table(tableName).select(input_file_name).take(1)
+    if (inputFiles.length != 1) return None
+
+    Some(s"${getTablePathWithPartitions(inputFiles(0).getString(0), tableName, partitions)}/_SUCCESS")
+  }
+
+  // partition 포함된 table 데이터 파일 경로 가져오기
+  def getTablePathWithPartitions(samplePath: String, tableName: String, partitions: Seq[(String, Any)]): String = {
+    val tableNamePath = if (tableName.contains(".")) tableName.replaceAll("\\.", "/") else tableName
+    val index = samplePath.indexOf(tableNamePath)
+    val tablePath = samplePath.substring(0, index + tableNamePath.length)
+
+    val partitionPath = partitions.map {
+      case (k: String, v: Any) => s"$k=$v"
+    }.mkString("/")
+
+    s"$tablePath/$partitionPath"
+  }
+
+
+}
