@@ -1,5 +1,6 @@
 package com.viewtreefull.utils.common.shell
 
+import com.viewtreefull.utils.common.fs.ShellTools
 import org.scalatest.FunSuite
 
 class ShellToolsTest extends FunSuite {

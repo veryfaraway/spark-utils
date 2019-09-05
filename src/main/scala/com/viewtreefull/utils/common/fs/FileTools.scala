@@ -1,7 +1,6 @@
 package com.viewtreefull.utils.common.fs
 
 import com.google.common.annotations.VisibleForTesting
-import com.viewtreefull.utils.common.shell.ShellTools
 import org.apache.log4j.LogManager
 
 object FileTools {

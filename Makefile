@@ -1,3 +1,5 @@
+GRADLE_VERSION=5.6.1
+
 build: clean
 	gradle build
 
@@ -10,3 +12,6 @@ local: build
 
 clean:
 	gradle clean
+
+wrapper:
+	gradle wrapper --gradle-version ${GRADLE_VERSION} --distribution-type all
