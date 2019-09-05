@@ -1,6 +1,6 @@
 package com.viewtreefull.utils.hadoop.io
 
-import com.viewtreefull.utils.common.shell.HDFSTools
+import com.viewtreefull.utils.common.fs.HDFSTools
 import org.scalatest.FunSuite
 
 import scala.sys.process._

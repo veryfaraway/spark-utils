@@ -1,9 +1,9 @@
-package com.viewtreefull.utils.common.shell
+package com.viewtreefull.utils.common.fs
 
 import com.google.common.annotations.VisibleForTesting
 import org.apache.log4j.LogManager
 
-import scala.sys.process._
+import sys.process._
 
 object HDFSTools {
   private val log = LogManager.getRootLogger
@@ -11,7 +11,7 @@ object HDFSTools {
   @VisibleForTesting
   def createEmptyFile(fileName: String): Unit = {
     try {
-      s"hadoop fs -touchz $fileName" !
+      s"hadoop fs -touchz $fileName".!!
     } catch {
       case e: Exception => e.printStackTrace()
     }

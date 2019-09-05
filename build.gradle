@@ -38,13 +38,14 @@ dependencies {
     testImplementation("junit:junit:4.+")
     testImplementation("org.scalatest:scalatest_$scalaMajorVersion:3.0.7")
     testImplementation("org.apache.spark:spark-core_$scalaMajorVersion:$sparkVersion")
+    testImplementation("org.apache.spark:spark-sql_$scalaMajorVersion:$sparkVersion")
 
     // Need scala-xml at test runtime
     testRuntimeOnly("org.scala-lang.modules:scala-xml_$scalaMajorVersion:1.2.0")
 }
 
 group = 'com.viewtreefull.utils'
-version = '0.1.0'
+version = '0.2.1'
 
 allprojects {
     tasks.register("projectInfo") {

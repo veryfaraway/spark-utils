@@ -2,9 +2,8 @@ package com.viewtreefull.utils.spark.sql
 
 import com.viewtreefull.utils.common.fs
 import com.viewtreefull.utils.common.fs.FileFormat.FileFormat
-import com.viewtreefull.utils.common.fs.{FileFormat, FileTools}
+import com.viewtreefull.utils.common.fs.{FileFormat, FileTools, HDFSTools}
 import com.viewtreefull.utils.common.lang.StringTools
-import com.viewtreefull.utils.common.shell.HDFSTools
 import org.apache.log4j.LogManager
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
@@ -95,20 +94,19 @@ object HiveTools {
    * @param df         DataFrame to save
    * @param tableName  Hive table name to save ex) "db.table"
    * @param path       Temporary file path to save DataFrame
-   * @param spark      SparkSession
    * @param fileFormat see [[fs.FileFormat]]
    */
-  def saveAsTable(df: DataFrame, tableName: String, path: String, spark: SparkSession,
+  def saveAsTable(df: DataFrame, tableName: String, path: String,
                   numFiles: Int = 0, fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+
+    val spark = df.sparkSession
 
     // to debug easily
     log.info(s"Write table[$tableName]")
     df.printSchema()
 
     // save data to temp path first
-    df.transform(DataFrameTools.setOutputFileCount(numFiles))
-      .write.format(fileFormat.toString).save(path)
-    log.info(s"DateFrame is saved at [$path]")
+    saveAsFile(df, numFiles, fileFormat, path)
 
     // finally load data into table
     loadData(tableName, path, spark)
@@ -127,13 +125,12 @@ object HiveTools {
    * @param df         DataFrame to save as table
    * @param tableName  table name to save
    * @param partitions list of names of partition ex) Seq("dt", "hour")
-   * @param spark      sparkSession
    * @param fileFormat default value is orc
    */
-  def saveAsTableWithPartitionDynamically(df: DataFrame, tableName: String, partitions: Seq[String],
-                                          spark: SparkSession, numFiles: Int = 0,
+  def saveAsTableWithPartitionDynamically(df: DataFrame, tableName: String, partitions: Seq[String], numFiles: Int = 0,
                                           fileFormat: FileFormat = FileFormat.getDefault): Unit = {
 
+    val spark = df.sparkSession
     val strCols = StringTools.concatStrings(df.columns)
     val strPartition = StringTools.concatStrings(partitions)
 
@@ -155,6 +152,20 @@ object HiveTools {
   }
 
   /**
+   * Create table if not exists
+   *
+   * @param df         DataFrame to create as Hive table
+   * @param tableName  table name ex) db.table
+   * @param partitions Seq((colName, value), ...) value is referred to define data type
+   * @param fileFormat default is orc
+   */
+  def createTable(df: DataFrame, tableName: String, partitions: Option[Seq[(String, Any)]],
+                  fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+    val spark = df.sparkSession
+    spark.sql(getTableCreationQuery(df, tableName, partitions, fileFormat))
+  }
+
+  /**
    * save table data with specific partitions
    * [IMPORTANT]partition column should not be included in DataFrame
    * because generated partition as directory by "LOAD DATA ..." query
@@ -163,16 +174,19 @@ object HiveTools {
    * @param tableName  table name to save
    * @param partitions partitions of table as list of (column, value)
    * @param path       file location to load
-   * @param spark      sparkSession
    * @param numFiles   output file count to reduce files
    * @param overwrite  WriteMode, true: overwrite, false: append
    * @param flag       if flag is true, create _SUCCESS file
    * @param fileFormat default value is orc
    */
   def saveAsTableWithPartition(df: DataFrame, tableName: String, partitions: Seq[(String, Any)],
-                               path: String, spark: SparkSession, numFiles: Int = 0,
+                               path: String, numFiles: Int = 0,
                                overwrite: Boolean = true, flag: Boolean = false,
                                fileFormat: FileFormat = FileFormat.getDefault): Unit = {
+
+    val spark = df.sparkSession
+    createTable(df, tableName, Some(partitions), fileFormat)
+
     // to debug easily
     println(
       s"""
@@ -181,13 +195,11 @@ object HiveTools {
          |\tOverwrite - $overwrite
          |\tcreate(_SUCCESS) - $flag
          |\tfromPath - $path
+         |${df.printSchema}
        """.stripMargin)
-    df.printSchema()
 
     // save data to temp path first
-    df.transform(DataFrameTools.setOutputFileCount(numFiles))
-      .write.format(fileFormat.toString).save(path)
-    log.info(s"DateFrame is saved at [$path]")
+    saveAsFile(df, numFiles, fileFormat, path)
 
     // finally load data into table
     loadDataWithPartitions(tableName, partitions, path, spark, overwrite)
@@ -199,6 +211,12 @@ object HiveTools {
 
     // delete empty directory after loading data
     HDFSTools.removeDir(path)
+  }
+
+  def saveAsFile(df: DataFrame, numFiles: Int, fileFormat: FileFormat, path: String): Unit = {
+    df.transform(DataFrameTools.setOutputFileCount(numFiles))
+      .write.format(fileFormat.toString).save(path)
+    log.info(s"DateFrame is saved at [$path]")
   }
 
   // create _SUCCESS file
@@ -228,6 +246,4 @@ object HiveTools {
 
     s"$tablePath/$partitionPath"
   }
-
-
 }
