@@ -1,4 +1,4 @@
-GRADLE_VERSION=5.6.1
+GRADLE_VERSION=5.6.4
 
 build: clean
 	gradle build

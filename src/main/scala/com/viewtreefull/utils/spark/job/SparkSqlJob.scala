@@ -7,7 +7,10 @@ import org.apache.spark.sql.SparkSession
   */
 trait SparkSqlJob extends App {
 
-  def getSparkSession(enableDynamicPartition: Boolean = false): SparkSession = {
+  def getSparkSession(enableDynamicPartition: Boolean = false,
+                      enableObjectStoreSettings: Boolean = false,
+                      enableOrcSettings: Boolean = false,
+                      enableParquetSetting: Boolean = false): SparkSession = {
     val sparkSession = SparkSession.builder()
       .enableHiveSupport()
       .config("hive.support.concurrency", "true")
@@ -16,6 +19,28 @@ trait SparkSqlJob extends App {
       sparkSession
         .config("hive.exec.dynamic.partition", "true")
         .config("hive.exec.dynamic.partition.mode", "nonstrict")
+    }
+
+    if (enableObjectStoreSettings) {
+      sparkSession
+        .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
+        .config("spark.hadoop.mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
+    }
+
+    if (enableOrcSettings) {
+      sparkSession
+        .config("spark.sql.orc.filterPushdown", "true")
+        .config("spark.sql.orc.splits.include.file.footer", "true")
+        .config("spark.sql.orc.cache.stripe.details.size", "10000")
+        .config("spark.sql.hive.metastorePartitionPruning", "true")
+    }
+
+    if (enableParquetSetting) {
+      sparkSession
+        .config("spark.hadoop.parquet.enable.summary-metadata", "false")
+        .config("spark.sql.parquet.mergeSchema", "false")
+        .config("spark.sql.parquet.filterPushdown", "true")
+        .config("spark.sql.hive.metastorePartitionPruning", "true")
     }
 
     sparkSession.getOrCreate()
