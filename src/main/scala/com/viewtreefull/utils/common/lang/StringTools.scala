@@ -3,12 +3,16 @@ package com.viewtreefull.utils.common.lang
 import java.util.regex.PatternSyntaxException
 
 /**
-  * StringTools
-  *
-  * @version 1.0
-  * @since 2017. 7. 27.
-  */
+ * StringTools
+ *
+ * @version 1.0
+ * @since 2017. 7. 27.
+ */
 object StringTools {
+  def isEmpty(str: String): Boolean = !isNotEmpty(str)
+
+  def isNotEmpty(str: String): Boolean = Option(str).exists(_.trim.nonEmpty)
+
   /** return simple name of class without last $ mark */
   def getClassSimpleName(aClass: Class[_]): String = {
     aClass.getSimpleName.split("\\$").last
@@ -34,12 +38,12 @@ object StringTools {
   }
 
   /**
-    * return key1='value1',key2='value2',...
-    *
-    * @param keys   list of key
-    * @param values list of value
-    * @return
-    */
+   * return key1='value1',key2='value2',...
+   *
+   * @param keys   list of key
+   * @param values list of value
+   * @return
+   */
   def getKeyValueString(keys: Seq[String], values: Seq[String]): String = {
     val str = StringBuilder.newBuilder
     for ((k, v) <- keys zip values) {
@@ -77,11 +81,11 @@ object StringTools {
   }
 
   /**
-    * Returns separated partition values as a single string value
-    *
-    * @param partitions Hive table partition formatted like Seq(("dt", "20180901"), ("hour", "12"))
-    * @return String for example, dt=20180901/hour=12
-    */
+   * Returns separated partition values as a single string value
+   *
+   * @param partitions Hive table partition formatted like Seq(("dt", "20180901"), ("hour", "12"))
+   * @return String for example, dt=20180901/hour=12
+   */
   def concatPartitions(partitions: Seq[(String, String)]): String = {
     partitions.map(p => p.productIterator.mkString("=")).mkString("/")
   }

@@ -45,7 +45,7 @@ dependencies {
 }
 
 group = 'com.viewtreefull.utils'
-version = '0.2.1'
+version = '0.2.2'
 
 allprojects {
     tasks.register("projectInfo") {
