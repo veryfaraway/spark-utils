@@ -11,7 +11,7 @@ import org.apache.spark.sql.functions._
 import scala.collection.mutable
 
 object HiveTools {
-  private val log = LogManager.getRootLogger
+  private val log = LogManager.getLogger(this.getClass)
 
   /**
    * Return Maximum value of table partition to find latest value
@@ -185,6 +185,11 @@ object HiveTools {
                                fileFormat: FileFormat = FileFormat.getDefault): Unit = {
 
     val spark = df.sparkSession
+
+    println(s"Save DataFrame as $tableName")
+    df.printSchema()
+
+    log.info(s"Create table if not exists: $tableName")
     createTable(df, tableName, Some(partitions), fileFormat)
 
     // to debug easily
@@ -198,18 +203,22 @@ object HiveTools {
          |${df.printSchema}
        """.stripMargin)
 
-    // save data to temp path first
+    log.info(s"Save data to temp path first: $path")
     saveAsFile(df, numFiles, fileFormat, path)
+    log.info("saveAsFile is done!")
 
     // finally load data into table
+    log.info(s"Load files into Table[$tableName]")
     loadDataWithPartitions(tableName, partitions, path, spark, overwrite)
-    log.info(s"DataFrame is loaded into Table[$tableName]")
+    log.info(s"loadData is done!")
 
     if (flag) {
       createCheckFile(tableName, partitions, spark)
+      log.info("_SUCCESS file is created")
     }
 
     // delete empty directory after loading data
+    log.info("Delete tempDir")
     HDFSTools.removeDir(path)
   }
 
