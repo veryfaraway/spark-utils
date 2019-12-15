@@ -1,5 +1,8 @@
 package com.viewtreefull.utils.spark.sql
 
+import java.time.LocalTime
+
+import com.viewtreefull.utils.common.date.DateTools
 import com.viewtreefull.utils.common.fs
 import com.viewtreefull.utils.common.fs.FileFormat.FileFormat
 import com.viewtreefull.utils.common.fs.{FileFormat, FileTools, HDFSTools}
@@ -186,31 +189,29 @@ object HiveTools {
 
     val spark = df.sparkSession
 
-    println(s"Save DataFrame as $tableName")
+    val startTime = LocalTime.now()
+    println(s"[$startTime]saveAsTableWithPartition: table=$tableName, partition=$partitions")
     df.printSchema()
 
     log.info(s"Create table if not exists: $tableName")
     createTable(df, tableName, Some(partitions), fileFormat)
 
-    // to debug easily
-    println(
-      s"""
-         |Write table[$tableName]:
-         |\tpartitions - $partitions
-         |\tOverwrite - $overwrite
-         |\tcreate(_SUCCESS) - $flag
-         |\tfromPath - $path
-         |${df.printSchema}
-       """.stripMargin)
-
     log.info(s"Save data to temp path first: $path")
     saveAsFile(df, numFiles, fileFormat, path)
     log.info("saveAsFile is done!")
+
+    val midTime = LocalTime.now()
+    var diff = DateTools.getTimeDiff(startTime, midTime)
+    println(s"[$midTime]saveAsTableWithPartition: saving DataFrame as files is done(${diff._1} hours ${diff._2} min. ${diff._3} sec.)")
 
     // finally load data into table
     log.info(s"Load files into Table[$tableName]")
     loadDataWithPartitions(tableName, partitions, path, spark, overwrite)
     log.info(s"loadData is done!")
+
+    val midTime2 = LocalTime.now()
+    diff = DateTools.getTimeDiff(midTime, midTime2)
+    println(s"[$midTime]saveAsTableWithPartition: loading files to table is done(${diff._1} hours ${diff._2} min. ${diff._3} sec.)")
 
     if (flag) {
       createCheckFile(tableName, partitions, spark)
@@ -220,11 +221,16 @@ object HiveTools {
     // delete empty directory after loading data
     log.info("Delete tempDir")
     HDFSTools.removeDir(path)
+
+    val endTime = LocalTime.now()
+    diff = DateTools.getTimeDiff(midTime2, endTime)
+    println(s"[$midTime]saveAsTableWithPartition: done(${diff._1} hours ${diff._2} min. ${diff._3} sec.)")
   }
 
   def saveAsFile(df: DataFrame, numFiles: Int, fileFormat: FileFormat, path: String): Unit = {
     df.transform(DataFrameTools.setOutputFileCount(numFiles))
-      .write.format(fileFormat.toString).save(path)
+      .write.format(fileFormat.toString).mode(SaveMode.Overwrite)
+      .save(path)
     log.info(s"DateFrame is saved at [$path]")
   }
 
